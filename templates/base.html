@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ title or "Civers Archive Web Interface" }}{% endblock %}</title>
+    
+    <!-- Tailwind CSS from CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Alpine.js from CDN -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/main.css') }}">
+    
+    <!-- Additional head content -->
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col">
+    <!-- Navigation Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-semibold text-gray-900">
+                        <a href="/" class="hover:text-blue-600 transition-colors">
+                            Civers Archive
+                        </a>
+                    </h1>
+                </div>
+                <div class="hidden md:block">
+                    <div class="ml-10 flex items-baseline space-x-4">
+                        <!-- Navigation items will be added here -->
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1" role="main">
+        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+            <!-- Page Header -->
+            {% block page_header %}
+            <div class="mb-8">
+                <h1 class="text-3xl font-bold text-gray-900">
+                    {% block page_title %}{{ title or "Welcome" }}{% endblock %}
+                </h1>
+                {% block page_description %}{% endblock %}
+            </div>
+            {% endblock %}
+
+            <!-- Main Content -->
+            {% block content %}
+            <div class="bg-white shadow rounded-lg p-6">
+                <p class="text-gray-600">
+                    Welcome to the Civers Archive Web Interface. This is a minimal viable product 
+                    for browsing and replaying archived versions of websites.
+                </p>
+            </div>
+            {% endblock %}
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-12">
+        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+            <p class="text-sm text-gray-500 text-center">
+                &copy; 2025 Civers Archive Web Interface MVP
+            </p>
+        </div>
+    </footer>
+
+    <!-- Custom JavaScript -->
+    <script src="{{ url_for('static', path='/js/app.js') }}"></script>
+    
+    <!-- Additional scripts -->
+    {% block scripts %}{% endblock %}
+</body>
+</html>

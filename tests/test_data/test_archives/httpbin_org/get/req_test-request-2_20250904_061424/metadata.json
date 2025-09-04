@@ -1,0 +1,91 @@
+{
+  "archive_info": {
+    "url": "https://httpbin.org/get",
+    "request_id": "test-request-2",
+    "created_at": "2025-09-04T06:14:24.827578",
+    "completed_at": "2025-09-04T06:14:33.821199",
+    "processing_time_seconds": 8.993621,
+    "generator": "ScoopArchiveGeneratorStrategy",
+    "version": "1.0.0"
+  },
+  "config": {
+    "archive_directory": "archives",
+    "scoop_cli_command": "node lib/scoop/bin/cli.js",
+    "scoop_timeout_sec": 300,
+    "singlefile_binary_path": "archive_generators/single-file-x86_64-linux",
+    "singlefile_timeout_sec": 60
+  },
+  "results": {
+    "scoop_exit_code": 0,
+    "scoop_timed_out": false,
+    "singlefile_exit_code": 0,
+    "singlefile_timed_out": false,
+    "singlefile_execution_time_sec": 6.040381,
+    "singlefile_validation": {
+      "valid": true,
+      "file_exists": true,
+      "file_size": 1581,
+      "has_html_structure": true,
+      "has_singlefile_markers": true,
+      "errors": []
+    },
+    "artifacts_created": [
+      "provenance-summary.html",
+      "scoop_stdout.log",
+      "singlefile.html",
+      "singlefile_stderr.log",
+      "archive.wacz",
+      "httpbin.org.pem",
+      "singlefile_stdout.log",
+      "summary.json",
+      "scoop_stderr.log"
+    ]
+  },
+  "files": [
+    {
+      "name": "provenance-summary.html",
+      "size": 6629,
+      "created": "2025-09-04T06:14:27.764022"
+    },
+    {
+      "name": "scoop_stdout.log",
+      "size": 3959,
+      "created": "2025-09-04T06:14:27.780236"
+    },
+    {
+      "name": "singlefile.html",
+      "size": 1581,
+      "created": "2025-09-04T06:14:33.782041"
+    },
+    {
+      "name": "singlefile_stderr.log",
+      "size": 0,
+      "created": "2025-09-04T06:14:33.820041"
+    },
+    {
+      "name": "archive.wacz",
+      "size": 22014,
+      "created": "2025-09-04T06:14:27.763191"
+    },
+    {
+      "name": "httpbin.org.pem",
+      "size": 7661,
+      "created": "2025-09-04T06:14:27.763191"
+    },
+    {
+      "name": "singlefile_stdout.log",
+      "size": 0,
+      "created": "2025-09-04T06:14:33.820041"
+    },
+    {
+      "name": "summary.json",
+      "size": 12746,
+      "created": "2025-09-04T06:14:27.763191"
+    },
+    {
+      "name": "scoop_stderr.log",
+      "size": 624,
+      "created": "2025-09-04T06:14:27.780301"
+    }
+  ]
+}

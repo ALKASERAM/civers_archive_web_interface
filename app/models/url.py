@@ -52,7 +52,7 @@ class ArchivedUrl(BaseModel):
                         "timestamp": "2024-03-15T14:30:22Z",
                         "url": "https://example.com",
                         "title": "Example Domain",
-                        "available_artifacts": ["warc.file", "screenshot.png"]
+                        "available_artifacts": ["archive.wacz", "metadata.json", "screenshot.png", "singlefile.html"]
                     }
                 ]
             }

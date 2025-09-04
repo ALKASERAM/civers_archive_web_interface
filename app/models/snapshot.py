@@ -19,8 +19,8 @@ class Snapshot(BaseModel):
     
     snapshot_id: str = Field(
         ...,
-        description="Timestamp-based identifier (e.g., '20240315T143022Z')",
-        pattern=r'^\d{8}T\d{6}Z$'
+        description="Snapshot identifier (e.g., '20240315T143022Z' or 'req_test-request-1_20250904_061411')",
+        min_length=1
     )
     
     timestamp: datetime = Field(
@@ -72,7 +72,7 @@ class Snapshot(BaseModel):
                     "content_type": "text/html",
                     "content_length": 1256
                 },
-                "available_artifacts": ["warc.file", "screenshot.png", "singlefile.html"]
+                "available_artifacts": ["archive.wacz", "metadata.json", "screenshot.png", "singlefile.html"]
             }
         }
     )
@@ -80,15 +80,20 @@ class Snapshot(BaseModel):
     @field_validator('snapshot_id')
     @classmethod
     def validate_snapshot_id_format(cls, v):
-        """Validate snapshot ID matches timestamp format."""
-        if len(v) != 16:
-            raise ValueError('snapshot_id must be 16 characters (YYYYMMDDTHHMMSSZ)')
-        
-        # Additional validation could parse the timestamp
-        try:
-            datetime.strptime(v, '%Y%m%dT%H%M%SZ')
-        except ValueError:
-            raise ValueError('snapshot_id must be valid timestamp format (YYYYMMDDTHHMMSSZ)')
+        """Validate snapshot ID matches request-timestamp format."""
+        # Support both new request format and legacy timestamp format
+        if v.startswith('req_'):
+            # New format: req_{request_id}_{YYYYMMDD_HHMMSS}
+            if len(v) < 10:  # Minimum length check
+                raise ValueError('snapshot_id must be valid request format (req_{id}_{timestamp})')
+        else:
+            if len(v) != 16:
+                raise ValueError('snapshot_id must be 16 characters (YYYYMMDDTHHMMSSZ) or request format (req_{id}_{timestamp})')
+            
+            try:
+                datetime.strptime(v, '%Y%m%dT%H%M%SZ')
+            except ValueError:
+                raise ValueError('snapshot_id must be valid timestamp format (YYYYMMDDTHHMMSSZ)')
         
         return v
     
@@ -119,9 +124,11 @@ class Snapshot(BaseModel):
     def validate_artifact_types(cls, v):
         """Validate artifact types against allowed list."""
         allowed_types = {
+            'archive.wacz',      # Web Archive Collection Zipped format
+            'metadata.json',     # Archive metadata
+            'screenshot.png',    # Page screenshot
+            'singlefile.html',   # Self-contained HTML
             'warc.file',
-            'screenshot.png', 
-            'singlefile.html',
             'document.html'
         }
         
@@ -174,8 +181,13 @@ class Snapshot(BaseModel):
         return len(self.available_artifacts)
     
     @property
+    def has_wacz(self) -> bool:
+        """Check if WACZ file is available."""
+        return 'archive.wacz' in self.available_artifacts
+    
+    @property
     def has_warc(self) -> bool:
-        """Check if WARC file is available."""
+        """Check if WARC file is available """
         return 'warc.file' in self.available_artifacts
     
     @property

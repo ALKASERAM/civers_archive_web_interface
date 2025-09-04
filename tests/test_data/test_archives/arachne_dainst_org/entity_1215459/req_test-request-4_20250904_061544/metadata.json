@@ -1,0 +1,117 @@
+{
+  "archive_info": {
+    "url": "https://arachne.dainst.org/entity/1215459?fl=20&q=*&resultIndex=8",
+    "request_id": "test-request-4",
+    "created_at": "2025-09-04T06:15:44.165129",
+    "completed_at": "2025-09-04T06:16:55.055558",
+    "processing_time_seconds": 70.890429,
+    "generator": "ScoopArchiveGeneratorStrategy",
+    "version": "1.0.0"
+  },
+  "config": {
+    "archive_directory": "archives",
+    "scoop_cli_command": "node lib/scoop/bin/cli.js",
+    "scoop_timeout_sec": 300,
+    "singlefile_binary_path": "archive_generators/single-file-x86_64-linux",
+    "singlefile_timeout_sec": 60
+  },
+  "results": {
+    "scoop_exit_code": 0,
+    "scoop_timed_out": false,
+    "singlefile_exit_code": null,
+    "singlefile_timed_out": true,
+    "singlefile_execution_time_sec": 60.064115,
+    "singlefile_validation": {
+      "valid": false,
+      "file_exists": false,
+      "file_size": 0,
+      "has_html_structure": false,
+      "has_singlefile_markers": false,
+      "errors": [
+        "Output file does not exist"
+      ]
+    },
+    "artifacts_created": [
+      "arachne.dainst.org.pem",
+      "provenance-summary.html",
+      "piwik.dainst.org.pem",
+      "scoop_stdout.log",
+      "idai.world.pem",
+      "singlefile_stderr.log",
+      "archive.wacz",
+      "screenshot.png",
+      "singlefile_stdout.log",
+      "tile.openstreetmap.org.pem",
+      "summary.json",
+      "scoop_stderr.log",
+      "dom-snapshot.html"
+    ]
+  },
+  "files": [
+    {
+      "name": "arachne.dainst.org.pem",
+      "size": 6370,
+      "created": "2025-09-04T06:15:54.970226"
+    },
+    {
+      "name": "provenance-summary.html",
+      "size": 6977,
+      "created": "2025-09-04T06:15:54.970226"
+    },
+    {
+      "name": "piwik.dainst.org.pem",
+      "size": 6033,
+      "created": "2025-09-04T06:15:54.970226"
+    },
+    {
+      "name": "scoop_stdout.log",
+      "size": 5194,
+      "created": "2025-09-04T06:15:54.990968"
+    },
+    {
+      "name": "idai.world.pem",
+      "size": 6338,
+      "created": "2025-09-04T06:15:54.970226"
+    },
+    {
+      "name": "singlefile_stderr.log",
+      "size": 45,
+      "created": "2025-09-04T06:16:55.055440"
+    },
+    {
+      "name": "archive.wacz",
+      "size": 2470985,
+      "created": "2025-09-04T06:15:54.968226"
+    },
+    {
+      "name": "screenshot.png",
+      "size": 497060,
+      "created": "2025-09-04T06:15:54.969226"
+    },
+    {
+      "name": "singlefile_stdout.log",
+      "size": 0,
+      "created": "2025-09-04T06:16:55.054300"
+    },
+    {
+      "name": "tile.openstreetmap.org.pem",
+      "size": 5736,
+      "created": "2025-09-04T06:15:54.970226"
+    },
+    {
+      "name": "summary.json",
+      "size": 38528,
+      "created": "2025-09-04T06:15:54.969226"
+    },
+    {
+      "name": "scoop_stderr.log",
+      "size": 78,
+      "created": "2025-09-04T06:15:54.991051"
+    },
+    {
+      "name": "dom-snapshot.html",
+      "size": 77053,
+      "created": "2025-09-04T06:15:54.970226"
+    }
+  ]
+}

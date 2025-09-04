@@ -33,8 +33,8 @@ class Snapshot:
         if not self.title and self.metadata:
             self.title = self.metadata.get('title', '')
         
-        # Check for standard artifact types
-        artifact_files = ['warc.file', 'screenshot.png', 'singlefile.html', 'document.html']
+        # Check for core artifact types (web interface focus)
+        artifact_files = ['archive.wacz', 'metadata.json', 'screenshot.png', 'singlefile.html']
         self.available_artifacts = []
         
         for artifact in artifact_files:
@@ -86,14 +86,28 @@ class StorageScanner:
             return False
         return time.time() - self._start_time > self.timeout_seconds
     
-    def _parse_timestamp(self, timestamp_str: str) -> Optional[datetime]:
+    def _parse_timestamp(self, folder_name: str) -> Optional[datetime]:
         """
-        Parse timestamp string from folder name.
+        Parse timestamp string from request folder name.
         
-        Expected format: YYYYMMDDTHHMMSSZ
+        Expected format: req_{request_id}_{YYYYMMDD_HHMMSS}
         """
         try:
-            # Handle different timestamp formats
+            # Extract timestamp from request folder format: req_{request_id}_{YYYYMMDD_HHMMSS}
+            if folder_name.startswith('req_'):
+                parts = folder_name.split('_')
+                if len(parts) >= 3:
+                    # Get the last two parts as date and time
+                    date_part = parts[-2]  # YYYYMMDD
+                    time_part = parts[-1]  # HHMMSS
+                    timestamp_str = f"{date_part}_{time_part}"
+                    
+                    # Try to parse the extracted timestamp
+                    try:
+                        return datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+                    except ValueError:
+                        pass
+            
             formats = [
                 '%Y%m%dT%H%M%SZ',  # 20240315T143022Z
                 '%Y%m%d_%H%M%S',   # 20240315_143022
@@ -102,15 +116,15 @@ class StorageScanner:
             
             for fmt in formats:
                 try:
-                    return datetime.strptime(timestamp_str, fmt)
+                    return datetime.strptime(folder_name, fmt)
                 except ValueError:
                     continue
             
-            logger.warning(f"Could not parse timestamp: {timestamp_str}")
+            logger.warning(f"Could not parse timestamp from folder: {folder_name}")
             return None
             
         except Exception as e:
-            logger.warning(f"Error parsing timestamp {timestamp_str}: {e}")
+            logger.warning(f"Error parsing timestamp from {folder_name}: {e}")
             return None
     
     def _parse_metadata_json(self, metadata_path: Path) -> Dict:
@@ -169,14 +183,21 @@ class StorageScanner:
             metadata_path = snapshot_dir / 'metadata.json'
             metadata = self._parse_metadata_json(metadata_path)
             
-            # Extract URL from metadata or reconstruct from url_id
-            url = metadata.get('url', '')
+            # Extract URL from metadata.archive_info.url (new structure)
+            url = ''
+            if metadata and 'archive_info' in metadata:
+                url = metadata['archive_info'].get('url', '')
+            elif metadata:
+                url = metadata.get('url', '')
+            
             if not url:
                 # Try to reconstruct URL from url_id (URL-decoded)
                 try:
                     url = unquote(url_id.replace('_', '/'))
+                    if not url.startswith(('http://', 'https://')):
+                        url = f'https://{url}'
                 except Exception:
-                    url = url_id
+                    url = f'https://{url_id}'
             
             return Snapshot(
                 snapshot_id=snapshot_id,
@@ -191,57 +212,103 @@ class StorageScanner:
             logger.error(f"Error scanning snapshot directory {snapshot_dir}: {e}")
             return None
     
-    def _scan_url_directory(self, url_dir: Path) -> Optional[ArchivedUrl]:
+    def _scan_path_directory(self, path_dir: Path, domain: str) -> List[Snapshot]:
         """
-        Scan a single URL directory for snapshots.
+        Scan a path directory for request-timestamp snapshot folders.
         
         Args:
-            url_dir: Path to URL directory
+            path_dir: Path to path segment directory (e.g., archives/example_com/home_page)
+            domain: Domain name for URL construction
             
         Returns:
-            ArchivedUrl object or None if no valid snapshots found
+            List of Snapshot objects found in this path directory
         """
+        snapshots = []
+        path_segment = path_dir.name
+        url_id = f"{domain}_{path_segment}"
+        
         try:
-            url_id = url_dir.name
-            snapshots = []
-            
-            # Scan for snapshot subdirectories
-            for item in url_dir.iterdir():
+            # Scan for request-timestamp snapshot subdirectories
+            for item in path_dir.iterdir():
                 if self._check_timeout():
-                    logger.warning(f"Timeout reached while scanning {url_dir}")
+                    logger.warning(f"Timeout reached while scanning {path_dir}")
                     break
                 
                 if not item.is_dir():
                     continue
                 
+                # Only process directories that start with 'req_'
+                if not item.name.startswith('req_'):
+                    logger.debug(f"Skipping non-request directory: {item.name}")
+                    continue
+                
                 snapshot = self._scan_snapshot_directory(item, url_id)
                 if snapshot:
                     snapshots.append(snapshot)
-            
-            if not snapshots:
-                logger.debug(f"No valid snapshots found in {url_dir}")
-                return None
-            
-            # Sort snapshots by timestamp (newest first)
-            snapshots.sort(key=lambda s: s.timestamp, reverse=True)
-            
-            # Get original URL from first snapshot
-            original_url = snapshots[0].url if snapshots else url_id
-            
-            return ArchivedUrl(
-                url_id=url_id,
-                original_url=original_url,
-                folder_name=url_dir.name,
-                snapshots=snapshots
-            )
-            
+        
         except Exception as e:
-            logger.error(f"Error scanning URL directory {url_dir}: {e}")
-            return None
+            logger.error(f"Error scanning path directory {path_dir}: {e}")
+        
+        return snapshots
+
+    def _scan_domain_directory(self, domain_dir: Path) -> List[ArchivedUrl]:
+        """
+        Scan a domain directory for path subdirectories.
+        
+        Args:
+            domain_dir: Path to domain directory (e.g., archives/example_com)
+            
+        Returns:
+            List of ArchivedUrl objects found in this domain
+        """
+        archived_urls = []
+        domain = domain_dir.name
+        
+        try:
+            # Scan for path subdirectories
+            for path_dir in domain_dir.iterdir():
+                if self._check_timeout():
+                    logger.warning(f"Timeout reached while scanning domain {domain_dir}")
+                    break
+                
+                if not path_dir.is_dir():
+                    continue
+                
+                # Get snapshots for this path
+                snapshots = self._scan_path_directory(path_dir, domain)
+                
+                if not snapshots:
+                    logger.debug(f"No valid snapshots found in {path_dir}")
+                    continue
+                
+                # Sort snapshots by timestamp (newest first)
+                snapshots.sort(key=lambda s: s.timestamp, reverse=True)
+                
+                # Create URL ID from domain and path
+                url_id = f"{domain}_{path_dir.name}"
+                
+                # Get original URL from first snapshot
+                original_url = snapshots[0].url if snapshots else f"https://{domain.replace('_', '.')}"
+                
+                archived_url = ArchivedUrl(
+                    url_id=url_id,
+                    original_url=original_url,
+                    folder_name=f"{domain}/{path_dir.name}",
+                    snapshots=snapshots
+                )
+                
+                archived_urls.append(archived_url)
+        
+        except Exception as e:
+            logger.error(f"Error scanning domain directory {domain_dir}: {e}")
+        
+        return archived_urls
     
     def scan(self) -> Dict[str, ArchivedUrl]:
         """
-        Scan the storage directory for all archived URLs and snapshots.
+        Scan the storage directory for all archived URLs and snapshots using three-level hierarchy.
+        
+        Structure: archives/domain/path_segment/req_request-id_timestamp/
         
         Returns:
             Dictionary mapping url_id to ArchivedUrl objects
@@ -258,23 +325,27 @@ class StorageScanner:
                 logger.error(f"Storage path is not a directory: {self.storage_path}")
                 return archived_urls
             
-            logger.info(f"Scanning storage directory: {self.storage_path}")
+            logger.info(f"Scanning archives directory: {self.storage_path}")
             
-            # Scan each URL directory
-            for item in self.storage_path.iterdir():
+            # Scan each domain directory (level 1)
+            for domain_dir in self.storage_path.iterdir():
                 if self._check_timeout():
                     logger.warning("Scan timeout reached")
                     break
                 
-                if not item.is_dir():
+                if not domain_dir.is_dir():
                     continue
                 
-                archived_url = self._scan_url_directory(item)
-                if archived_url:
+                # Get all archived URLs for this domain
+                domain_urls = self._scan_domain_directory(domain_dir)
+                
+                # Add each archived URL to results
+                for archived_url in domain_urls:
                     archived_urls[archived_url.url_id] = archived_url
             
             scan_duration = time.time() - self._start_time
-            logger.info(f"Scan completed in {scan_duration:.2f}s. Found {len(archived_urls)} URLs")
+            total_snapshots = sum(url.snapshot_count for url in archived_urls.values())
+            logger.info(f"Scan completed in {scan_duration:.2f}s. Found {len(archived_urls)} URLs with {total_snapshots} total snapshots")
             
             return archived_urls
             

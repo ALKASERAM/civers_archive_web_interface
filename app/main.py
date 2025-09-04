@@ -5,6 +5,8 @@ from fastapi.templating import Jinja2Templates
 import os
 from dotenv import load_dotenv
 
+from .api.urls import router as urls_router
+
 # Load environment variables
 load_dotenv()
 
@@ -20,6 +22,9 @@ templates = Jinja2Templates(directory="templates")
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Include API routers
+app.include_router(urls_router)
 
 @app.get("/health")
 async def health_check():

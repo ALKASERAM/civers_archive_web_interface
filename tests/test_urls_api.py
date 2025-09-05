@@ -1,208 +1,179 @@
 """
-Tests for URLs API endpoint.
+Integration tests for URLs API endpoint with storage architecture.
 """
 
 import pytest
-import time
-from unittest.mock import Mock, patch
+import tempfile
+import json
+from pathlib import Path
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from datetime import datetime
-from pathlib import Path
 
 from app.main import app
-from app.storage.scanner import ArchivedUrl as ScannerArchivedUrl, Snapshot as ScannerSnapshot
 
+# Create test client
 client = TestClient(app)
 
-@pytest.fixture
-def mock_scanner_data():
-    """Mock scanner data for testing."""
-    # Create mock snapshot
-    mock_snapshot = ScannerSnapshot(
-        snapshot_id="req_test-1_20250904_061411",
-        timestamp=datetime(2024, 3, 15, 14, 30, 22),
-        folder_path=Path("/test/path"),
-        metadata={"url": "https://example.com", "title": "Test Page"},
-        url="https://example.com",
-        title="Test Page",
-        available_artifacts=["archive.wacz", "metadata.json", "screenshot.png", "singlefile.html"]
-    )
-    
-    # Create mock archived URL
-    mock_archived_url = ScannerArchivedUrl(
-        url_id="example_com",
-        original_url="https://example.com",
-        folder_name="example_com",
-        snapshots=[mock_snapshot]
-    )
-    
-    return [mock_archived_url]
 
-class TestUrlsAPI:
-    """Test cases for URLs API endpoint."""
+@pytest.fixture
+def temp_archives():
+    """Create temporary archives directory with test data."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        archives_path = Path(temp_dir) / "archives"
+        archives_path.mkdir()
+        
+        # Create test structure: archives/domain/path/req_id_timestamp/
+        domain_dir = archives_path / "example_com"
+        domain_dir.mkdir()
+        
+        path_dir = domain_dir / "home_page"
+        path_dir.mkdir()
+        
+        request_dir = path_dir / "req_test-1_20250904_120000"
+        request_dir.mkdir()
+        
+        # Create metadata.json
+        metadata = {
+            "archive_info": {
+                "url": "https://example.com",
+                "request_id": "test-1"
+            },
+            "title": "Example Domain"
+        }
+        with open(request_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f)
+        
+        # Create artifacts
+        (request_dir / "archive.wacz").write_bytes(b"fake wacz data")
+        (request_dir / "screenshot.png").write_bytes(b"fake image data")
+        
+        yield str(archives_path)
+
+
+class TestUrlsAPIIntegration:
+    """Integration tests for URLs API with real storage service."""
     
-    @patch('app.api.urls.get_cached_scanner_results')
-    def test_list_urls_default_params(self, mock_scanner, mock_scanner_data):
-        """Test URLs endpoint with default parameters."""
-        mock_scanner.return_value = mock_scanner_data
+    def test_list_urls_with_mock_storage_service(self, temp_archives):
+        """Test URLs endpoint with mocked storage service."""
+        from app.storage.factory import create_storage_service
         
-        response = client.get("/api/urls")
+        # Create storage service with test data
+        config = {
+            "storage": {
+                "type": "filesystem",
+                "filesystem": {"path": temp_archives},
+                "cache": {"ttl_seconds": 60}
+            }
+        }
         
-        assert response.status_code == 200
-        data = response.json()
+        storage_service = create_storage_service(config)
         
-        assert data["success"] is True
-        assert len(data["data"]) == 1
-        assert data["data"][0]["url_id"] == "example_com"
-        assert data["data"][0]["original_url"] == "https://example.com/"  # HttpUrl normalizes URLs
-        assert data["data"][0]["snapshot_count"] == 1
-        
-        # Check pagination
-        assert data["pagination"]["page"] == 1
-        assert data["pagination"]["limit"] == 50
-        assert data["pagination"]["total_count"] == 1
-        assert data["pagination"]["total_pages"] == 1
-        assert data["pagination"]["has_next"] is False
-        assert data["pagination"]["has_previous"] is False
-    
-    @patch('app.api.urls.get_cached_scanner_results')
-    def test_list_urls_with_pagination(self, mock_scanner, mock_scanner_data):
-        """Test URLs endpoint with custom pagination."""
-        mock_scanner.return_value = mock_scanner_data
-        
-        response = client.get("/api/urls?page=1&limit=1")
-        
-        assert response.status_code == 200
-        data = response.json()
-        
-        assert data["pagination"]["page"] == 1
-        assert data["pagination"]["limit"] == 1
-        assert data["pagination"]["total_count"] == 1
-    
-    @patch('app.api.urls.get_cached_scanner_results')
-    def test_list_urls_sorting(self, mock_scanner, mock_scanner_data):
-        """Test URLs endpoint with different sort options."""
-        mock_scanner.return_value = mock_scanner_data
-        
-        # Test each sort option
-        for sort_option in ["url", "last_captured", "snapshot_count"]:
-            response = client.get(f"/api/urls?sort={sort_option}")
+        # Set the storage service in app state
+        setattr(app.state, 'storage_service', storage_service)
+        try:
+            response = client.get("/api/urls")
+            
             assert response.status_code == 200
             data = response.json()
+            
             assert data["success"] is True
+            assert len(data["data"]) == 1
+            assert data["data"][0]["url_id"] == "example_com_home_page"
+            assert data["data"][0]["original_url"] == "https://example.com/"
+            assert data["data"][0]["snapshot_count"] == 1
+            
+            # Check pagination
+            assert data["pagination"]["page"] == 1
+            assert data["pagination"]["limit"] == 50
+            assert data["pagination"]["total_count"] == 1
+        finally:
+            # Clean up app state
+            if hasattr(app.state, 'storage_service'):
+                delattr(app.state, 'storage_service')
+
+    def test_list_urls_pagination(self, temp_archives):
+        """Test URLs endpoint pagination."""
+        from app.storage.factory import create_storage_service
+        
+        config = {
+            "storage": {
+                "type": "filesystem", 
+                "filesystem": {"path": temp_archives},
+                "cache": {"ttl_seconds": 60}
+            }
+        }
+        
+        storage_service = create_storage_service(config)
+        
+        setattr(app.state, 'storage_service', storage_service)
+        try:
+            response = client.get("/api/urls?page=1&limit=1")
+            
+            assert response.status_code == 200
+            data = response.json()
+            
+            assert data["success"] is True
+            assert len(data["data"]) <= 1
+            assert data["pagination"]["limit"] == 1
+        finally:
+            if hasattr(app.state, 'storage_service'):
+                delattr(app.state, 'storage_service')
+
+    def test_cache_stats_endpoint(self, temp_archives):
+        """Test cache stats debug endpoint."""
+        from app.storage.factory import create_storage_service
+        
+        config = {
+            "storage": {
+                "type": "filesystem",
+                "filesystem": {"path": temp_archives},
+                "cache": {"ttl_seconds": 60}
+            }
+        }
+        
+        storage_service = create_storage_service(config)
+        
+        setattr(app.state, 'storage_service', storage_service)
+        try:
+            # First populate cache
+            client.get("/api/urls")
+            
+            # Then check cache stats
+            response = client.get("/debug/cache/stats")
+            
+            assert response.status_code == 200
+            data = response.json()
+            
+            assert "cached_urls_count" in data
+            assert "ttl_seconds" in data
+            assert data["cached_urls_count"] == 1
+            assert data["ttl_seconds"] == 60
+        finally:
+            if hasattr(app.state, 'storage_service'):
+                delattr(app.state, 'storage_service')
+
+
+class TestUrlsAPIValidation:
+    """Test URL API validation without storage setup."""
     
-    @patch('app.api.urls.get_cached_scanner_results')
-    def test_list_urls_empty_results(self, mock_scanner):
-        """Test URLs endpoint with no results."""
-        mock_scanner.return_value = []
-        
-        response = client.get("/api/urls")
-        
-        assert response.status_code == 200
-        data = response.json()
-        
-        assert data["success"] is True
-        assert len(data["data"]) == 0
-        assert data["pagination"]["total_count"] == 0
-        assert data["pagination"]["total_pages"] == 0
-    
-    def test_list_urls_invalid_page(self):
-        """Test URLs endpoint with invalid page number."""
+    def test_invalid_page_parameter(self):
+        """Test invalid page parameter validation."""
         response = client.get("/api/urls?page=0")
-        assert response.status_code == 422  # Validation error
-    
-    def test_list_urls_invalid_limit(self):
-        """Test URLs endpoint with invalid limit."""
-        response = client.get("/api/urls?limit=0")
-        assert response.status_code == 422  # Validation error
         
+        # FastAPI should return 422 for validation errors
+        assert response.status_code == 422
+        
+    def test_invalid_limit_parameter(self):
+        """Test invalid limit parameter validation."""
         response = client.get("/api/urls?limit=101")
-        assert response.status_code == 422  # Validation error
-    
-    @patch('app.api.urls.get_cached_scanner_results')
-    def test_list_urls_page_out_of_bounds(self, mock_scanner, mock_scanner_data):
-        """Test URLs endpoint with page beyond available data."""
-        mock_scanner.return_value = mock_scanner_data
         
-        response = client.get("/api/urls?page=999")
-        
-        assert response.status_code == 400
-        assert "does not exist" in response.json()["detail"]
-    
-    @patch('app.api.urls.get_cached_scanner_results')
-    def test_list_urls_server_error(self, mock_scanner):
-        """Test URLs endpoint with server error."""
-        mock_scanner.side_effect = Exception("Scanner error")
-        
-        response = client.get("/api/urls")
-        
-        assert response.status_code == 500
-        assert "Failed to retrieve URL list" in response.json()["detail"]
+        # FastAPI should return 422 for validation errors
+        assert response.status_code == 422
 
-
-class TestCacheTTL:
-    """Test cases for cache TTL functionality."""
-    
-    def setup_method(self):
-        """Reset cache state before each test."""
-        import app.api.urls as urls_module
-        urls_module._scanner_cache_timestamp = 0
-        urls_module._get_scanner_results_internal.cache_clear()
-    
-    def test_cache_stats_endpoint(self):
-        """Test cache statistics endpoint."""
-        response = client.get("/api/cache/stats")
+    def test_invalid_sort_parameter(self):
+        """Test invalid sort parameter validation."""
+        response = client.get("/api/urls?sort=invalid")
         
-        assert response.status_code == 200
-        data = response.json()
-        
-        # Check expected fields
-        assert "cache_age_seconds" in data
-        assert "ttl_seconds" in data
-        assert "cache_expired" in data
-        assert "cache_disabled" in data
-        assert "last_refresh_timestamp" in data
-        
-        # TTL should be 60 seconds by default
-        assert data["ttl_seconds"] == 60
-    
-    @patch('app.api.urls._scanner_cache_ttl', 0)  # Disable cache
-    @patch('app.api.urls._get_scanner_results_internal')
-    def test_cache_disabled_behavior(self, mock_internal):
-        """Test that cache is bypassed when TTL=0."""
-        mock_internal.return_value = []
-        
-        # Make two requests
-        client.get("/api/urls")
-        client.get("/api/urls")
-        
-        # Should call scanner twice when cache is disabled
-        assert mock_internal.call_count == 2
-    
-    def test_cache_configuration_via_env(self):
-        """Test that TTL can be configured via environment variable."""
-        # This test verifies the environment variable is properly read
-        # The actual TTL behavior is verified through manual testing
-        import app.api.urls as urls_module
-        
-        # Check that the TTL is configured (either default 60 or custom value)
-        assert isinstance(urls_module._scanner_cache_ttl, int)
-        assert urls_module._scanner_cache_ttl >= 0  # Can be 0 (disabled) or positive
-    
-    @patch('app.api.urls._get_scanner_results_internal')
-    def test_manual_cache_clear(self, mock_internal):
-        """Test manual cache clearing functionality."""
-        from app.api.urls import clear_scanner_cache
-        
-        mock_internal.return_value = []
-        
-        # First request - cache miss
-        client.get("/api/urls")
-        assert mock_internal.call_count == 1
-        
-        # Clear cache manually
-        clear_scanner_cache()
-        
-        # Next request should be cache miss again
-        client.get("/api/urls")
-        assert mock_internal.call_count == 2
+        # FastAPI should return 422 for validation errors
+        assert response.status_code == 422

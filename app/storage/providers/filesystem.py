@@ -1,91 +1,52 @@
 """
-Storage scanner for discovering and parsing archived web content.
+Filesystem storage provider implementation.
 
-This module provides functionality to scan the filesystem storage structure,
-discover archived URLs and snapshots, and parse metadata.json files.
+This module contains the FilesystemStorageProvider that implements storage
+operations for local filesystem archives with integrated scanning functionality.
 """
 
 import json
 import logging
-import os
 import time
 from datetime import datetime
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, IO
 from urllib.parse import unquote
+
+from .base import StorageProvider, StorageError
+from ...models.url import ArchivedUrl
+from ...models.snapshot import Snapshot
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class Snapshot:
-    """Represents a single snapshot of a URL."""
-    snapshot_id: str
-    timestamp: datetime
-    folder_path: Path
-    metadata: Dict
-    url: str
-    title: Optional[str] = None
-    available_artifacts: List[str] = field(default_factory=list)
-    
-    def __post_init__(self):
-        """Extract title from metadata and check for available artifacts."""
-        if not self.title and self.metadata:
-            self.title = self.metadata.get('title', '')
-        
-        # Check for core artifact types (web interface focus)
-        artifact_files = ['archive.wacz', 'metadata.json', 'screenshot.png', 'singlefile.html']
-        self.available_artifacts = []
-        
-        for artifact in artifact_files:
-            if (self.folder_path / artifact).exists():
-                self.available_artifacts.append(artifact)
 
-@dataclass
-class ArchivedUrl:
-    """Represents an archived URL with its snapshots."""
-    url_id: str
-    original_url: str
-    folder_name: str
-    snapshots: List[Snapshot] = field(default_factory=list)
+class FilesystemStorageProvider(StorageProvider):
+    """
+    Filesystem implementation of StorageProvider.
     
-    @property
-    def snapshot_count(self) -> int:
-        return len(self.snapshots)
-    
-    @property
-    def first_captured(self) -> Optional[datetime]:
-        if not self.snapshots:
-            return None
-        return min(snapshot.timestamp for snapshot in self.snapshots)
-    
-    @property
-    def last_captured(self) -> Optional[datetime]:
-        if not self.snapshots:
-            return None
-        return max(snapshot.timestamp for snapshot in self.snapshots)
+    This provider handles storage operations for archives stored in the
+    local filesystem with integrated directory scanning functionality.
+    """
 
-class StorageScanner:
-    """Scanner for archived web content in filesystem storage."""
-    
     def __init__(self, storage_path: Path, timeout_seconds: int = 10):
         """
-        Initialize storage scanner.
+        Initialize filesystem storage provider.
         
         Args:
-            storage_path: Path to the storage directory
-            timeout_seconds: Maximum time to spend scanning
+            storage_path: Path to the archives directory
+            timeout_seconds: Maximum time to spend on operations
         """
         self.storage_path = Path(storage_path)
         self.timeout_seconds = timeout_seconds
+        self._cached_results: Optional[Dict[str, ArchivedUrl]] = None
         self._start_time = None
-    
+
     def _check_timeout(self) -> bool:
         """Check if scanning has exceeded timeout."""
         if self._start_time is None:
             return False
         return time.time() - self._start_time > self.timeout_seconds
-    
+
     def _parse_timestamp(self, folder_name: str) -> Optional[datetime]:
         """
         Parse timestamp string from request folder name.
@@ -126,7 +87,7 @@ class StorageScanner:
         except Exception as e:
             logger.warning(f"Error parsing timestamp from {folder_name}: {e}")
             return None
-    
+
     def _parse_metadata_json(self, metadata_path: Path) -> Dict:
         """
         Parse metadata.json file with error handling.
@@ -158,7 +119,7 @@ class StorageScanner:
         except Exception as e:
             logger.error(f"Error reading metadata {metadata_path}: {e}")
             return {}
-    
+
     def _scan_snapshot_directory(self, snapshot_dir: Path, url_id: str) -> Optional[Snapshot]:
         """
         Scan a single snapshot directory.
@@ -199,20 +160,29 @@ class StorageScanner:
                 except Exception:
                     url = f'https://{url_id}'
             
+            # Check for available artifacts
+            artifact_files = ['archive.wacz', 'metadata.json', 'screenshot.png', 'singlefile.html']
+            available_artifacts = []
+            
+            for artifact in artifact_files:
+                if (snapshot_dir / artifact).exists():
+                    available_artifacts.append(artifact)
+            
             return Snapshot(
                 snapshot_id=snapshot_id,
                 timestamp=timestamp,
-                folder_path=snapshot_dir,
-                metadata=metadata,
                 url=url,
-                title=metadata.get('title', '')
+                title=metadata.get('title', ''),
+                folder_path=str(snapshot_dir),  # Convert Path to string for Pydantic
+                metadata=metadata,
+                available_artifacts=available_artifacts
             )
             
         except Exception as e:
             logger.error(f"Error scanning snapshot directory {snapshot_dir}: {e}")
             return None
-    
-    def _scan_path_directory(self, path_dir: Path, domain: str) -> List[Snapshot]:
+
+    def _scan_path_directory(self, path_dir: Path, domain: str) -> list[Snapshot]:
         """
         Scan a path directory for request-timestamp snapshot folders.
         
@@ -251,7 +221,7 @@ class StorageScanner:
         
         return snapshots
 
-    def _scan_domain_directory(self, domain_dir: Path) -> List[ArchivedUrl]:
+    def _scan_domain_directory(self, domain_dir: Path) -> list[ArchivedUrl]:
         """
         Scan a domain directory for path subdirectories.
         
@@ -303,8 +273,8 @@ class StorageScanner:
             logger.error(f"Error scanning domain directory {domain_dir}: {e}")
         
         return archived_urls
-    
-    def scan(self) -> Dict[str, ArchivedUrl]:
+
+    def _scan_storage(self) -> Dict[str, ArchivedUrl]:
         """
         Scan the storage directory for all archived URLs and snapshots using three-level hierarchy.
         
@@ -352,41 +322,174 @@ class StorageScanner:
         except Exception as e:
             logger.error(f"Error during storage scan: {e}")
             return archived_urls
-
-def scan_storage_directory(storage_path: str, timeout_seconds: int = 10) -> Dict[str, ArchivedUrl]:
-    """
-    Convenience function to scan storage directory.
-    
-    Args:
-        storage_path: Path to storage directory
-        timeout_seconds: Maximum time to spend scanning
         
-    Returns:
-        Dictionary mapping url_id to ArchivedUrl objects
-    """
-    scanner = StorageScanner(Path(storage_path), timeout_seconds)
-    return scanner.scan()
+    def get_all_urls(self) -> Dict[str, ArchivedUrl]:
+        """
+        Get all archived URLs from filesystem.
+        
+        Returns:
+            Dictionary mapping url_id to ArchivedUrl objects
+            
+        Raises:
+            StorageError: If filesystem scan fails
+        """
+        try:
+            # Perform direct filesystem scan
+            archived_urls = self._scan_storage()
+            self._cached_results = archived_urls
+            return archived_urls
+            
+        except Exception as e:
+            logger.error(f"Error scanning filesystem storage: {e}")
+            raise StorageError(f"Failed to scan filesystem storage: {str(e)}") from e
 
-# CLI support for testing
-if __name__ == "__main__":
-    import sys
-    import argparse
-    
-    # Set up logging
-    logging.basicConfig(level=logging.INFO)
-    
-    parser = argparse.ArgumentParser(description='Scan storage directory for archived URLs')
-    parser.add_argument('storage_path', help='Path to storage directory')
-    parser.add_argument('--timeout', type=int, default=10, help='Scan timeout in seconds')
-    
-    args = parser.parse_args()
-    
-    # Perform scan
-    results = scan_storage_directory(args.storage_path, args.timeout)
-    
-    # Print results
-    print(f"Found {len(results)} archived URLs:")
-    for url_id, archived_url in results.items():
-        print(f"  {url_id}: {archived_url.original_url} ({archived_url.snapshot_count} snapshots)")
-        for snapshot in archived_url.snapshots[:3]:  # Show first 3 snapshots
-            print(f"    - {snapshot.timestamp} ({len(snapshot.available_artifacts)} artifacts)")
+    def get_url_by_id(self, url_id: str) -> Optional[ArchivedUrl]:
+        """
+        Get a specific archived URL by its ID.
+        
+        Args:
+            url_id: The URL identifier
+            
+        Returns:
+            ArchivedUrl object if found, None otherwise
+            
+        Raises:
+            StorageError: If storage operation fails
+        """
+        try:
+            # Get all URLs if not cached
+            if self._cached_results is None:
+                self.get_all_urls()
+            
+            return self._cached_results.get(url_id) if self._cached_results else None
+            
+        except Exception as e:
+            logger.error(f"Error getting URL {url_id}: {e}")
+            raise StorageError(f"Failed to get URL {url_id}: {str(e)}") from e
+
+    def get_snapshot_by_id(self, snapshot_id: str) -> Optional[Snapshot]:
+        """
+        Get a specific snapshot by its ID.
+        
+        Args:
+            snapshot_id: The snapshot identifier
+            
+        Returns:
+            Snapshot object if found, None otherwise
+            
+        Raises:
+            StorageError: If storage operation fails
+        """
+        try:
+            # Get all URLs to search for snapshot
+            if self._cached_results is None:
+                self.get_all_urls()
+            
+            if not self._cached_results:
+                return None
+                
+            # Search through all URLs for the snapshot
+            for archived_url in self._cached_results.values():
+                for snapshot in archived_url.snapshots:
+                    if snapshot.snapshot_id == snapshot_id:
+                        return snapshot
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting snapshot {snapshot_id}: {e}")
+            raise StorageError(f"Failed to get snapshot {snapshot_id}: {str(e)}") from e
+
+    def get_artifact_stream(self, snapshot_id: str, artifact_type: str) -> Optional[IO]:
+        """
+        Get a stream to a specific artifact file.
+        
+        Args:
+            snapshot_id: The snapshot identifier
+            artifact_type: Type of artifact (e.g., 'archive.wacz', 'screenshot.png')
+            
+        Returns:
+            File-like object stream if found, None otherwise
+            
+        Raises:
+            StorageError: If storage operation fails
+        """
+        try:
+            # Get snapshot to find file path
+            snapshot = self.get_snapshot_by_id(snapshot_id)
+            if not snapshot:
+                return None
+            
+            # Build artifact file path (convert string back to Path)
+            artifact_path = Path(snapshot.folder_path) / artifact_type
+            
+            if not artifact_path.exists():
+                logger.debug(f"Artifact not found: {artifact_path}")
+                return None
+            
+            # Open and return file stream
+            return open(artifact_path, 'rb')
+            
+        except Exception as e:
+            logger.error(f"Error getting artifact stream {snapshot_id}/{artifact_type}: {e}")
+            raise StorageError(f"Failed to get artifact stream: {str(e)}") from e
+
+    def artifact_exists(self, snapshot_id: str, artifact_type: str) -> bool:
+        """
+        Check if a specific artifact exists.
+        
+        Args:
+            snapshot_id: The snapshot identifier  
+            artifact_type: Type of artifact (e.g., 'archive.wacz', 'screenshot.png')
+            
+        Returns:
+            True if artifact exists, False otherwise
+            
+        Raises:
+            StorageError: If storage operation fails
+        """
+        try:
+            # Get snapshot to find file path
+            snapshot = self.get_snapshot_by_id(snapshot_id)
+            if not snapshot:
+                return False
+            
+            # Check if artifact file exists
+            artifact_path = Path(snapshot.folder_path) / artifact_type
+            return artifact_path.exists() and artifact_path.is_file()
+            
+        except Exception as e:
+            logger.error(f"Error checking artifact existence {snapshot_id}/{artifact_type}: {e}")
+            raise StorageError(f"Failed to check artifact existence: {str(e)}") from e
+
+    def get_artifact_path(self, snapshot_id: str, artifact_type: str) -> Optional[Path]:
+        """
+        Get the path to a specific artifact file.
+        
+        Args:
+            snapshot_id: The snapshot identifier
+            artifact_type: Type of artifact (e.g., 'archive.wacz', 'screenshot.png')
+            
+        Returns:
+            Path to artifact file if exists, None otherwise
+            
+        Raises:
+            StorageError: If storage operation fails
+        """
+        try:
+            # Get snapshot to find file path
+            snapshot = self.get_snapshot_by_id(snapshot_id)
+            if not snapshot:
+                return None
+            
+            # Build and validate artifact file path
+            artifact_path = Path(snapshot.folder_path) / artifact_type
+            
+            if not artifact_path.exists():
+                return None
+                
+            return artifact_path
+            
+        except Exception as e:
+            logger.error(f"Error getting artifact path {snapshot_id}/{artifact_type}: {e}")
+            raise StorageError(f"Failed to get artifact path: {str(e)}") from e

@@ -8,6 +8,7 @@ dependencies = [
     "jinja2>=3.1.6",
     "python-dotenv>=1.1.1",
     "python-multipart>=0.0.20",
+    "pyyaml>=6.0.2",
     "uvicorn>=0.35.0",
 ]
 

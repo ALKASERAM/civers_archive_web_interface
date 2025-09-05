@@ -1,0 +1,53 @@
+# Storage configuration for Civers Archive Web Interface
+#
+# This file defines the storage backend configuration and caching settings
+# for the archive web interface.
+
+storage:
+  # Storage backend type
+  # Supported values: "filesystem", "s3", "database" (future)
+  type: "filesystem"
+  
+  # Filesystem storage configuration (when type: "filesystem")
+  filesystem:
+    # Path to the archives directory
+    # Can be absolute or relative to project root
+    path: "archives"
+    
+    # Timeout for filesystem operations (seconds)
+    # Set to 0 for no timeout
+    timeout_seconds: 10
+  
+  # S3 storage configuration (when type: "s3") - Future implementation
+  # s3:
+  #   bucket: "civers-archives"
+  #   region: "us-west-2"
+  #   access_key_id: "${AWS_ACCESS_KEY_ID}"
+  #   secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+  #   prefix: "archives/"
+  #   timeout_seconds: 30
+  
+  # Database storage configuration (when type: "database") - Future implementation  
+  # database:
+  #   connection_string: "${DATABASE_URL}"
+  #   timeout_seconds: 15
+  
+  # Cache configuration
+  cache:
+    # Cache TTL in seconds
+    # Set to 0 to disable caching
+    # Set to -1 for no expiration (cache until manually cleared)
+    ttl_seconds: 60
+    
+    # Maximum cache entries (for future use with LRU eviction)
+    max_entries: 1000
+
+# Environment variable overrides
+#
+# You can override any configuration value using environment variables
+# with the format: CIVERS_<SECTION>_<KEY>
+#
+# Examples:
+#   CIVERS_STORAGE_TYPE=s3
+#   CIVERS_FILESYSTEM_PATH=/data/archives  
+#   CIVERS_CACHE_TTL_SECONDS=120
